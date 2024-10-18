@@ -1,0 +1,114 @@
+jenkins:
+  systemMessage: "Jenkins configured via JCasC"
+  agentProtocols:
+    - "JNLP4-connect"
+    - "Ping"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  clouds:
+    - amazonEC2:
+        instanceCapStr: "4"
+        name: "ec2-agent"
+        region: "${var.region}"
+        sshKeysCredentialsId: "jenkins_key"
+        templates:
+          - ami: "${var.agent_ami}"
+            amiType:
+              unixData:
+                rootCommandPrefix: "sudo"
+                slaveCommandPrefix: "sudo"
+                sshPort: "22"
+            associatePublicIp: true
+            connectBySSHProcess: false
+            connectionStrategy: PRIVATE_IP
+            deleteRootOnTermination: false
+            description: "ec2-agent-ami"
+            ebsEncryptRootVolume: DEFAULT
+            ebsOptimized: false
+            hostKeyVerificationStrategy: ACCEPT_NEW
+            idleTerminationMinutes: "30"
+            initScript: |-
+              #!/bin/bash
+              sudo apt update
+              sudo apt install openjdk-11-jdk -y
+            instanceCapStr: "${var.agents_instance_cap}"
+            javaPath: "java"
+            labelString: "ec2-agent cloud docker"
+            maxTotalUses: -1
+            metadataEndpointEnabled: true
+            metadataHopsLimit: 1
+            metadataSupported: true
+            metadataTokensRequired: false
+            minimumNumberOfInstances: ${var.agents_instance_min}
+            minimumNumberOfSpareInstances: 0
+            mode: NORMAL
+            monitoring: false
+            nodeProperties:
+              - diskSpaceMonitor:
+                  freeDiskSpaceThreshold: "100MiB"
+                  freeDiskSpaceWarningThreshold: "100MiB"
+                  freeTempSpaceThreshold: "100MiB"
+                  freeTempSpaceWarningThreshold: "100MiB"
+            numExecutors: ${var.agent_num_executors}
+            remoteAdmin: "ubuntu"
+            remoteFS: "/home/jenkins"
+            securityGroups: "jenkins-agents-sg"
+            stopOnTerminate: false
+            subnetId: "${aws_subnet.jenkins_subnet.id}"
+            t2Unlimited: false
+            tenancy: Default
+            type: T3Micro
+            useEphemeralDevices: false
+        useInstanceProfileForCredentials: true
+  mode: EXCLUSIVE
+  myViewsTabBar: "standard"
+  nodeMonitors:
+    - "architecture"
+    - "clock"
+    - diskSpace:
+        freeSpaceThreshold: "1GiB"
+        freeSpaceWarningThreshold: "2GiB"
+    - "swapSpace"
+    - tmpSpace:
+        freeSpaceThreshold: "1GiB"
+        freeSpaceWarningThreshold: "2GiB"
+    - "responseTime"
+  numExecutors: 0
+  slaveAgentPort: -1
+jobs:
+  - script: >
+      pipelineJob('${var.job_name}') {
+        description('')
+        keepDependencies(false)
+        properties {
+          githubProjectUrl('${var.github_pipeline_uri}')
+        }
+        triggers {
+          githubPush()
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('${var.github_pipeline_uri}')
+                }
+                branches('*/main')
+                extensions { }
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        disabled(false)
+      }
+tool:
+  git:
+    installations:
+      - home: "git"
+        name: "Default"
+  mavenGlobalConfig:
+    globalSettingsProvider: "standard"
+    settingsProvider: "standard"

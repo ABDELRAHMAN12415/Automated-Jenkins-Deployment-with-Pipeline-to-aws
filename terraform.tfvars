@@ -13,9 +13,8 @@ jenkins_plugins = [
   "cloudbees-credentials",   # Enhanced credential management
   "docker-workflow",         # For Docker integration in pipelines
   "github-branch-source",    # For multibranch pipelines with GitHub
-  "ssh-credentials"          # For managing SSH keys
+  "ssh-credentials",         # For managing SSH keys
+  "ec2"               # For creating the cloud agents
 ]
-github_job_uri = "https://raw.githubusercontent.com/ABDELRAHMAN12415/jenkins/job-config/config.xml"
-github_cloud_node_uri = "https://raw.githubusercontent.com/ABDELRAHMAN12415/jenkins/cloud-node-config/casc.yaml"  
-
-#java -jar /usr/local/bin/pim.jar --war /usr/share/java/jenkins.war --plugin-download-directory /var/lib/jenkins/plugins/ --plugins configuration-as-code
+github_pipeline_uri = "https://github.com/ABDELRAHMAN12415/jenkins.git"
+#agent_conf_uri = "https://raw.githubusercontent.com/ABDELRAHMAN12415/jenkins/cloud-node-config/jenkins.yaml"

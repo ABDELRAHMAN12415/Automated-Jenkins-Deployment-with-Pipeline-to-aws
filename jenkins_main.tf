@@ -16,7 +16,7 @@ resource "aws_internet_gateway" "jenkins_gw" {
 }
 
 # Createing a Subnet
-resource "aws_subnet" "sub1" {
+resource "aws_subnet" "jenkins_subnet" {
   vpc_id            = aws_vpc.testing.id
   cidr_block        = "10.0.1.0/24"
   map_public_ip_on_launch = true
@@ -32,7 +32,7 @@ resource "aws_route_table" "public" {
   }
 }
 resource "aws_route_table_association" "association" {
-  subnet_id      = aws_subnet.sub1.id
+  subnet_id      = aws_subnet.jenkins_subnet.id
   route_table_id = aws_route_table.public.id
 }
 
@@ -64,23 +64,30 @@ resource "aws_security_group" "jenkins_master_sg" {
 }
 
 # Createing a Security Group for the node instances
-# resource "aws_security_group" "jenkins_agents_sg" {
-#   name = "jenkins-agents-sg"
+resource "aws_security_group" "jenkins_agents_sg" {
+  name = "jenkins-agents-sg"
+  vpc_id = aws_vpc.testing.id
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-#   ingress {
-#     from_port   = 22
-#     to_port     = 22
-#     protocol    = "tcp"
-#     cidr_blocks = ["0.0.0.0/0"]
-#   }
+  ingress {
+    from_port   = 50000
+    to_port     = 50000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-#   egress {
-#     from_port   = 0
-#     to_port     = 0
-#     protocol    = "-1"
-#     cidr_blocks = ["0.0.0.0/0"]
-#   }
-# }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
 
 # Creating IAM role for jenkins to prevent hard coding aws credentials and easier access # Attach the AmazonEC2FullAccess policy to the IAM role
 resource "aws_iam_role" "jenkins_role" {
@@ -91,7 +98,7 @@ resource "aws_iam_role" "jenkins_role" {
       Effect = "Allow",
       Action = "sts:AssumeRole",
       Principal = {
-        Service = "ec2.amazonaws.com"  # or specify the Jenkins instance here
+        Service = "ec2.amazonaws.com"
       }
     }]
   })
@@ -107,28 +114,20 @@ resource "aws_iam_instance_profile" "jenkins_master_profile" {
   role = aws_iam_role.jenkins_role.name
 }
 
-# Createing ssh key pair
-resource "tls_private_key" "jenkins_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
 # Uploading the public key to AWS
-# resource "aws_key_pair" "jenkins_key" {
-#   key_name   = "jenkins-ssh-key"
-#   public_key = tls_private_key.jenkins_key.public_key_openssh
-# }
+resource "aws_key_pair" "jenkins_key" {
+  key_name   = "jenkins-key"
+  public_key = var.jenkins_ssh_public_key                            # tls_private_key.jenkins_key.public_key_openssh
+}
 
 # Createing an EC2 instance
 resource "aws_instance" "jenkins_master" {
   ami           = "ami-097c5c21a18dc59ea"
   instance_type = "t3.micro"
-  subnet_id     = aws_subnet.sub1.id
+  subnet_id     = aws_subnet.jenkins_subnet.id
   security_groups = [aws_security_group.jenkins_master_sg.id]
   iam_instance_profile = aws_iam_instance_profile.jenkins_master_profile.name
-  # credit_specification {
-  #    cpu_credits = "standard"
-  # }
+  key_name      = aws_key_pair.jenkins_key.key_name
 
   user_data = <<-EOF
               #!/bin/bash
@@ -140,6 +139,8 @@ resource "aws_instance" "jenkins_master" {
               # Create Jenkins home directory
               sudo mkdir -p /var/lib/jenkins
               sudo chown -R jenkins:jenkins /var/lib/jenkins
+              sudo chmod 755 /var/lib/jenkins
+              export JENKINS_HOME="/var/lib/jenkins" 
 
               # Update the package repository
               sudo yum update -y
@@ -150,115 +151,173 @@ resource "aws_instance" "jenkins_master" {
               # Install git
               sudo yum install -y git
 
-              # Add the Jenkins repo to Yum
+              # Install Jenkins
               sudo curl -o /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
               sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
-
-              # Install Jenkins
               sudo yum install -y jenkins
-
-              # Start Jenkins service
-              sudo systemctl start jenkins
-
-              # Enable Jenkins to start on boot
-              sudo systemctl enable jenkins
-
+              
               # Assign Jenkins Variables
               export JENKINS_URL="http://localhost:8080"
               export JENKINS_CLI="/usr/local/bin/jenkins-cli.jar"
-              export INITIAL_ADMIN_PASSWORD=$(sudo cat /var/lib/jenkins/secrets/initialAdminPassword)              
 
-              # Wait for Jenkins to start
-              while ! curl -s $JENKINS_URL > /dev/null; do
-                sleep 3
-              done
+              # Download the Plugin Installation Manager
+              sudo wget https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/2.13.2/jenkins-plugin-manager-2.13.2.jar -O /usr/local/bin/pim.jar
+              sudo chown root:root /usr/local/bin/pim.jar
+              sudo chmod 755 /usr/local/bin/pim.jar
 
-              # Install Jenkins CLI
-              sudo wget $JENKINS_URL/jnlpJars/jenkins-cli.jar -O $JENKINS_CLI
+              # Add the cloud-node jenkins.yaml file
+              cat <<EOT > /var/lib/jenkins/jenkins.yaml
+              jenkins:
+                systemMessage: "Jenkins configured via JCasC"
+                numExecutors: 0
+                slaveAgentPort: -1
+                mode: EXCLUSIVE
+                myViewsTabBar: "standard"
+                securityRealm:
+                  local:
+                    allowsSignup: false
+                    users:
+                      - id: "${var.jenkins_username}"
+                        password: "${var.jenkins_password}"
+                authorizationStrategy:
+                  loggedInUsersCanDoAnything:
+                    allowAnonymousRead: false
+                agentProtocols:
+                - "JNLP4-connect"
+                - "Ping"
+                clouds:
+                - amazonEC2:
+                    instanceCapStr: "4"
+                    name: "ec2-agent"
+                    region: "${var.region}"
+                    sshKeysCredentialsId: "jenkins_key"
+                    templates:
+                    - ami: "${var.agent_ami}"
+                      amiType:
+                        unixData:
+                          rootCommandPrefix: "sudo"
+                          slaveCommandPrefix: "sudo"
+                          sshPort: "22"
+                      associatePublicIp: true
+                      connectBySSHProcess: false
+                      connectionStrategy: PRIVATE_IP
+                      deleteRootOnTermination: false
+                      description: "ec2-agent-ami"
+                      ebsEncryptRootVolume: DEFAULT
+                      ebsOptimized: false
+                      hostKeyVerificationStrategy: ACCEPT_NEW
+                      idleTerminationMinutes: "30"
+                      initScript: |-
+                         #!/bin/bash
+                         sudo apt update
+                         sudo apt install openjdk-11-jdk -y
+                      instanceCapStr: "${var.agents_instance_cap}"
+                      javaPath: "java"
+                      labelString: "ec2-agent cloud docker"
+                      maxTotalUses: -1
+                      metadataEndpointEnabled: true
+                      metadataHopsLimit: 1
+                      metadataSupported: true
+                      metadataTokensRequired: false
+                      minimumNumberOfInstances: ${var.agents_instance_min}
+                      minimumNumberOfSpareInstances: 0
+                      mode: NORMAL
+                      monitoring: false
+                      nodeProperties:
+                      - diskSpaceMonitor:
+                          freeDiskSpaceThreshold: "100MiB"
+                          freeDiskSpaceWarningThreshold: "100MiB"
+                          freeTempSpaceThreshold: "100MiB"
+                          freeTempSpaceWarningThreshold: "100MiB"
+                      numExecutors: ${var.agent_num_executors}
+                      remoteAdmin: "ubuntu"
+                      remoteFS: "/home/jenkins"
+                      securityGroups: "jenkins-agents-sg"
+                      stopOnTerminate: false
+                      subnetId: "${aws_subnet.jenkins_subnet.id}"
+                      t2Unlimited: false
+                      tenancy: Default
+                      type: T3Micro
+                      useEphemeralDevices: false
+                    useInstanceProfileForCredentials: true
+                nodeMonitors:
+                - "architecture"
+                - "clock"
+                - diskSpace:
+                    freeSpaceThreshold: "1GiB"
+                    freeSpaceWarningThreshold: "2GiB"
+                - "swapSpace"
+                - tmpSpace:
+                    freeSpaceThreshold: "1GiB"
+                    freeSpaceWarningThreshold: "2GiB"
+                - "responseTime"
+              jobs:
+                - script: >
+                    pipelineJob('${var.job_name}') {
+                      description('')
+                      keepDependencies(false)
+                      properties {
+                        githubProjectUrl('${var.github_pipeline_uri}')
+                      }
+                      triggers {
+                        githubPush()
+                      }
+                      definition {
+                        cpsScm {
+                          scm {
+                            git {
+                              remote {
+                                url('${var.github_pipeline_uri}')
+                              }
+                              branches('*/main')
+                              extensions { }
+                            }
+                          }
+                          scriptPath('Jenkinsfile')
+                          lightweight(true)
+                        }
+                      }
+                      disabled(false)
+                    }
+              tool:
+                git:
+                  installations:
+                  - home: "git"
+                    name: "Default"
+                mavenGlobalConfig:
+                  globalSettingsProvider: "standard"
+                  settingsProvider: "standard"
+              EOT
+              sudo chmod 644 /var/lib/jenkins/jenkins.yaml
+              sudo chown jenkins:jenkins /var/lib/jenkins/jenkins.yaml        
 
-              # Create a Jenkins user
-              echo "jenkins.model.Jenkins.instance.securityRealm.createAccount(\"${var.jenkins_username}\", \"${var.jenkins_password}\")" | \
-              java -jar $JENKINS_CLI -s $JENKINS_URL -auth admin:$INITIAL_ADMIN_PASSWORD groovy =
+              # Create dir for plugins
+              sudo mkdir -p /var/lib/jenkins/plugins
+              sudo chown -R jenkins:jenkins /var/lib/jenkins/plugins
+              sudo chmod -R 755 /var/lib/jenkins/plugins
 
               # Install plugins
               for plugin in ${join(" ", var.jenkins_plugins)}; do
-                java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} install-plugin $plugin
-              done          
+                sudo java -jar /usr/local/bin/pim.jar --war /usr/share/java/jenkins.war --plugin-download-directory /var/lib/jenkins/plugins/ --plugins $plugin
+              done 
 
-              # Wait for Jenkins to restart
-              sudo systemctl restart jenkins
-              while ! curl -s $JENKINS_URL > /dev/null; do
-                sleep 3
-              done
+              # Start and enable Jenkins service
+              sudo systemctl start jenkins
+              sudo systemctl enable jenkins 
 
-              # Download the initial-job config.xml file
-              sudo curl -o /tmp/config.xml ${var.github_job_uri}
+              # Install Jenkins CLI
+              sudo wget $JENKINS_URL/jnlpJars/jenkins-cli.jar -O $JENKINS_CLI     
 
-              # Download the cloud-node casc.yaml file
-              sudo curl -o /var/lib/jenkins/casc.yaml ${var.github_cloud_node_uri}
-
-              # Set permissions for config.xml and casc.yaml files
-              sudo chmod 644 /tmp/config.xml
-              sudo chown jenkins:jenkins /tmp/config.xml
-              sudo chmod 644 /var/lib/jenkins/casc.yaml
-              sudo chown jenkins:jenkins /var/lib/jenkins/casc.yaml
-
-              # Update Jenkins service with environment variables
-              sudo mkdir -p /etc/systemd/system/jenkins.service.d
-              sudo bash -c 'cat << EOF > /etc/systemd/system/jenkins.service.d/override.conf
-              [Service]
-              Environment="JENKINS_JAVA_OPTIONS=-Djenkins.install.runSetupWizard=false"
-              Environment="JENKINS_CASC_JENKINS_CONFIG=/var/lib/jenkins/casc.yaml"
-              Environment="JAVA_ARGS=-Djava.awt.headless=true"
-              EOF'
-
-              # Reload systemd to apply the changes
-              sudo systemctl daemon-reload
-
-              # Restart Jenkins to apply new settings
-              sudo systemctl restart jenkins
-              while ! curl -s $JENKINS_URL > /dev/null; do
-                sleep 3
-              done
-
-              # After downloading and applying the casc.yaml configuration
-              java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} reload-jcasc-configuration
-
-              # Run the Jenkins CLI command to create a job using the downloaded config.xml
-              java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} create-job initial_job < /tmp/config.xml
-
-              # Inject the public key generated by Terraform
-              sudo mkdir -p /home/jenkins/.ssh
-              sudo chown -R jenkins:jenkins /home/jenkins/.ssh
-              sudo chmod 700 /home/jenkins/.ssh
-              echo "${tls_private_key.jenkins_key.public_key_openssh}" | sudo tee /home/jenkins/.ssh/authorized_keys > /dev/null
-              sudo chmod 600 /home/jenkins/.ssh/authorized_keys
-              sudo chown jenkins:jenkins /home/jenkins/.ssh/authorized_keys
+              # Upload and apply the ssh.xml file
+              echo '${replace(file("credentials.xml"), "'", "'\\''")}' > /var/lib/jenkins/credentials.xml
+              sudo chown jenkins:jenkins /var/lib/jenkins/credentials.xml
+              sudo chmod 644 /var/lib/jenkins/credentials.xml
+              java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} create-credentials-by-xml system::system::jenkins _ < /var/lib/jenkins/credentials.xml
 
         EOF
-
-  # Provisioner to run commands after instance creation
-  provisioner "remote-exec" {
-    inline = [
-      "echo 'instance provisioning and configurations is done'",
-    ]
-
-    connection {
-      type        = "ssh"
-      user        = "jenkins"  # Change to the appropriate user
-      private_key = tls_private_key.jenkins_key.private_key_pem
-      host        = self.public_ip
-    }
-  }
 }
 
 # Output the Jenkins URL
 output "jenkins_url" {
   value = "http://${aws_instance.jenkins_master.public_ip}:8080"
 }
-
-#java -jar /usr/local/bin/jenkins-cli.jar -s http://localhost:8080 -auth a:a list-jobs
-# # Disable master node
-# java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} offline-node "(master)" -m "Disabling master node"
-# sudo systemctl edit jenkins
-# sudo java -jar /usr/local/bin/jenkins-cli.jar -s http://localhost:8080/ -auth a:a configuration-as-code apply /var/lib/jenkins/casc.yaml
