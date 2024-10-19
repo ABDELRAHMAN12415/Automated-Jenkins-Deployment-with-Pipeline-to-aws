@@ -165,129 +165,25 @@ resource "aws_instance" "jenkins_master" {
               sudo chown root:root /usr/local/bin/pim.jar
               sudo chmod 755 /usr/local/bin/pim.jar
 
-              # Add the cloud-node jenkins.yaml file
+              # Create the jenkins.yaml file with the provided configurations
               cat <<EOT > /var/lib/jenkins/jenkins.yaml
-              jenkins:
-                systemMessage: "Jenkins configured via JCasC"
-                numExecutors: 0
-                slaveAgentPort: -1
-                mode: EXCLUSIVE
-                myViewsTabBar: "standard"
-                securityRealm:
-                  local:
-                    allowsSignup: false
-                    users:
-                      - id: "${var.jenkins_username}"
-                        password: "${var.jenkins_password}"
-                authorizationStrategy:
-                  loggedInUsersCanDoAnything:
-                    allowAnonymousRead: false
-                agentProtocols:
-                - "JNLP4-connect"
-                - "Ping"
-                clouds:
-                - amazonEC2:
-                    instanceCapStr: "4"
-                    name: "ec2-agent"
-                    region: "${var.region}"
-                    sshKeysCredentialsId: "jenkins_key"
-                    templates:
-                    - ami: "${var.agent_ami}"
-                      amiType:
-                        unixData:
-                          rootCommandPrefix: "sudo"
-                          slaveCommandPrefix: "sudo"
-                          sshPort: "22"
-                      associatePublicIp: true
-                      connectBySSHProcess: false
-                      connectionStrategy: PRIVATE_IP
-                      deleteRootOnTermination: false
-                      description: "ec2-agent-ami"
-                      ebsEncryptRootVolume: DEFAULT
-                      ebsOptimized: false
-                      hostKeyVerificationStrategy: ACCEPT_NEW
-                      idleTerminationMinutes: "30"
-                      initScript: |-
-                         #!/bin/bash
-                         sudo apt update
-                         sudo apt install openjdk-11-jdk -y
-                      instanceCapStr: "${var.agents_instance_cap}"
-                      javaPath: "java"
-                      labelString: "ec2-agent cloud docker"
-                      maxTotalUses: -1
-                      metadataEndpointEnabled: true
-                      metadataHopsLimit: 1
-                      metadataSupported: true
-                      metadataTokensRequired: false
-                      minimumNumberOfInstances: ${var.agents_instance_min}
-                      minimumNumberOfSpareInstances: 0
-                      mode: NORMAL
-                      monitoring: false
-                      nodeProperties:
-                      - diskSpaceMonitor:
-                          freeDiskSpaceThreshold: "100MiB"
-                          freeDiskSpaceWarningThreshold: "100MiB"
-                          freeTempSpaceThreshold: "100MiB"
-                          freeTempSpaceWarningThreshold: "100MiB"
-                      numExecutors: ${var.agent_num_executors}
-                      remoteAdmin: "ubuntu"
-                      remoteFS: "/home/jenkins"
-                      securityGroups: "jenkins-agents-sg"
-                      stopOnTerminate: false
-                      subnetId: "${aws_subnet.jenkins_subnet.id}"
-                      t2Unlimited: false
-                      tenancy: Default
-                      type: T3Micro
-                      useEphemeralDevices: false
-                    useInstanceProfileForCredentials: true
-                nodeMonitors:
-                - "architecture"
-                - "clock"
-                - diskSpace:
-                    freeSpaceThreshold: "1GiB"
-                    freeSpaceWarningThreshold: "2GiB"
-                - "swapSpace"
-                - tmpSpace:
-                    freeSpaceThreshold: "1GiB"
-                    freeSpaceWarningThreshold: "2GiB"
-                - "responseTime"
-              jobs:
-                - script: >
-                    pipelineJob('${var.job_name}') {
-                      description('')
-                      keepDependencies(false)
-                      properties {
-                        githubProjectUrl('${var.github_pipeline_uri}')
-                      }
-                      triggers {
-                        githubPush()
-                      }
-                      definition {
-                        cpsScm {
-                          scm {
-                            git {
-                              remote {
-                                url('${var.github_pipeline_uri}')
-                              }
-                              branches('*/main')
-                              extensions { }
-                            }
-                          }
-                          scriptPath('Jenkinsfile')
-                          lightweight(true)
-                        }
-                      }
-                      disabled(false)
-                    }
-              tool:
-                git:
-                  installations:
-                  - home: "git"
-                    name: "Default"
-                mavenGlobalConfig:
-                  globalSettingsProvider: "standard"
-                  settingsProvider: "standard"
+              ${templatefile("/home/abdelrahman/Desktop/final_project/terraform/jenkins.yaml.tpl", {
+                jenkins_username = var.jenkins_username,
+                jenkins_password = var.jenkins_password,
+                slack_token = var.slack_token,
+                region = var.region,
+                agent_ami = var.agent_ami,
+                agents_instance_cap = var.agents_instance_cap,
+                agents_instance_min = var.agents_instance_min,
+                slack_domain = var.slack_domain,
+                slack_workspace = var.slack_workspace,  
+                job_name = var.job_name,
+                github_pipeline_uri = var.github_pipeline_uri,
+                agent_num_executors = var.agent_num_executors,  
+                agents_subnet_id = aws_subnet.jenkins_subnet.id,
+              })}
               EOT
+
               sudo chmod 644 /var/lib/jenkins/jenkins.yaml
               sudo chown jenkins:jenkins /var/lib/jenkins/jenkins.yaml        
 
@@ -295,6 +191,9 @@ resource "aws_instance" "jenkins_master" {
               sudo mkdir -p /var/lib/jenkins/plugins
               sudo chown -R jenkins:jenkins /var/lib/jenkins/plugins
               sudo chmod -R 755 /var/lib/jenkins/plugins
+
+              # Install the specific version of the matrix-project plugin to prevent conflicts
+              sudo java -jar /usr/local/bin/pim.jar --war /usr/share/java/jenkins.war --plugin-download-directory /var/lib/jenkins/plugins/ --plugins matrix-project:839.vff91cd7e3a_b_2
 
               # Install plugins
               for plugin in ${join(" ", var.jenkins_plugins)}; do
@@ -315,6 +214,21 @@ resource "aws_instance" "jenkins_master" {
               java -jar $JENKINS_CLI -s $JENKINS_URL -auth ${var.jenkins_username}:${var.jenkins_password} create-credentials-by-xml system::system::jenkins _ < /var/lib/jenkins/credentials.xml
 
         EOF
+}
+
+# Terminate Agents when jenkins master gets destroyed
+resource "null_resource" "cleanup_nodes" {
+    depends_on = [aws_instance.jenkins_master]
+
+    provisioner "local-exec" {
+        command = <<EOT
+            # Fetch instance IDs by security group
+            INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=instance.group-id,Values=${aws_security_group.jenkins_agents_sg.id}" --query "Reservations[*].Instances[*].InstanceId" --output text)
+            if [ -n "$INSTANCE_IDS" ]; then
+                aws ec2 terminate-instances --instance-ids $INSTANCE_IDS
+            fi
+        EOT
+    }
 }
 
 # Output the Jenkins URL

@@ -84,3 +84,18 @@ variable "jenkins_ssh_public_key" {
 #   type        = string
 #   default     = "https://raw.githubusercontent.com/ABDELRAHMAN12415/jenkins/cloud-node-config/jenkins.yaml"
 # }
+
+variable "slack_domain" {
+  description = "Slack domain"
+  type        = string
+}
+
+variable "slack_token" {
+  description = "Slack API token"
+  type        = string
+}
+
+variable "slack_workspace" {
+  description = "Slack workspace name"
+  type        = string
+}
