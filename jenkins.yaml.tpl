@@ -59,10 +59,10 @@ jenkins:
               # Add Docker's official GPG key and set up the stable repository
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
               curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-              sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
               echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
               # Update package list again and install Docker and git
+              sudo apt upgrade -y
               sudo apt update -y
               sudo apt install -y docker-ce docker-ce-cli containerd.io git
 
