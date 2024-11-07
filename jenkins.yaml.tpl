@@ -130,7 +130,7 @@ jobs:
                 remote {
                   url('${github_pipeline_uri}')
                 }
-                branches('*/main')
+                branches('*/${github_pipeline_branch_uri}')
                 extensions { }
               }
             }
