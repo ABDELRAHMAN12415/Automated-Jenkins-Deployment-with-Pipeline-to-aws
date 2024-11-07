@@ -2,7 +2,7 @@
 
 This repository provides an automated Jenkins deployment using a pipeline to AWS. It incorporates Docker, NGINX, and Slack integrations. The Jenkins pipeline automates the build and deployment process, including building Docker images, running containers, and sending notifications via Slack.
 
-<img src="https://github.com/ABDELRAHMAN12415/Automated-Jenkins-Deployment-with-Pipeline-to-aws/blob/main/Untitled%20Diagram.drawio.svg" alt="Diagram Description">
+![Deployment Diagram](https://github.com/ABDELRAHMAN12415/Automated-Jenkins-Deployment-with-Pipeline-to-aws/blob/main/Untitled%20Diagram.drawio.png)
 
 ## Features
 - **Automated Jenkins Deployment**: A pipeline that automates Jenkins setup, builds Docker images, and deploys applications.
