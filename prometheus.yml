@@ -1,8 +1,0 @@
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'jenkins'
-    metrics_path: '/prometheus'
-    static_configs:
-      - targets: ['172.17.0.4:8080']  # Replace <JENKINS_IP> with the IP address or hostname of your Jenkins server
