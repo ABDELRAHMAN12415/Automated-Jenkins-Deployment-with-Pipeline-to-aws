@@ -18,7 +18,7 @@ jenkins_plugins = [
   "ec2:latest",                     // For creating cloud agents
   "pipeline-stage-view:latest"      // Stage View Plugin for visualizing pipeline stages
 ]
-github_pipeline_uri = "https://github.com/yusef-okasha97/Automated-Deployment-Pipeline-with-Jenkins.git"
+github_pipeline_uri = "https://github.com/ABDELRAHMAN12415/Automated-Jenkins-Deployment-with-Pipeline-to-aws.git"
 #agent_conf_uri = "https://raw.githubusercontent.com/ABDELRAHMAN12415/jenkins/cloud-node-config/jenkins.yaml"
 slack_domain = "jenkins-fxn3433"
 slack_token = "YenlR9C9TqUlTpiEqQssRMe9"
