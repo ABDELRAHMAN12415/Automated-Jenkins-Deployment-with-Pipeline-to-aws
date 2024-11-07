@@ -167,7 +167,7 @@ resource "aws_instance" "jenkins_master" {
 
               # Create the jenkins.yaml file with the provided configurations
               cat <<EOT > /var/lib/jenkins/jenkins.yaml
-              ${templatefile("/home/abdelrahman/Desktop/final_project/terraform/jenkins.yaml.tpl", {
+              ${templatefile("jenkins.yaml.tpl", {
                 jenkins_username = var.jenkins_username,
                 jenkins_password = var.jenkins_password,
                 slack_token = var.slack_token,
