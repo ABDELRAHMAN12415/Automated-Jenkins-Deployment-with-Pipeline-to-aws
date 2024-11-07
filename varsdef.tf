@@ -67,6 +67,12 @@ variable "github_pipeline_uri" {
   default     = "https://github.com/ABDELRAHMAN12415/jenkins.git"
 }
 
+variable "github_pipeline_branch_uri" {
+  description = "jenkins_initial_job_github_branch_uri"
+  type        = string
+  default     = "html-and-pipeline-files"
+}
+
 variable "job_name" {
   description = "initial_job_name"
   type        = string
