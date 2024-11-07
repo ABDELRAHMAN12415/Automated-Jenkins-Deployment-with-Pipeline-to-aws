@@ -1,3 +1,0 @@
-jenkins:
-  systemMessage: "Jenkins configured via JCasC"
-  numExecutors: 0  # Set executors on master to 0
